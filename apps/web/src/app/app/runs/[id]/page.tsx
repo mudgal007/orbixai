@@ -91,6 +91,7 @@ export default function RunMonitor() {
             <h1 className="text-xl font-semibold tracking-tight">{run.workflow.name}</h1>
             <Badge tone="indigo">v{run.version.version}</Badge>
             <ModeBadge mode={run.mode} />
+            {run.scheduledFor && <Badge tone="cyan">Scheduled · {new Date(run.scheduledFor).toLocaleString()}</Badge>}
             <StatusBadge status={run.status} />
             <OutcomeBadge outcome={run.outcome} />
             <span className={cn("inline-flex items-center gap-1 text-[11px]", live ? "text-good" : "text-ink-3")}>{live ? <Wifi className="size-3" /> : <WifiOff className="size-3" />}{live ? "live" : TERMINAL.includes(run.status) ? "final" : "reconnecting"}</span>

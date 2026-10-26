@@ -99,6 +99,8 @@ export interface Run {
   tokensIn: number;
   tokensOut: number;
   estimatedMinutesSaved: number;
+  scheduleId: string | null;
+  scheduledFor: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;

@@ -10,6 +10,7 @@ import { CAPABILITIES, agentForCapability, approvalRequiredFor, type ValidationI
 import { MissionGraph } from "@/components/mission-graph";
 import { NodeInspector } from "@/components/node-inspector";
 import { RunDialog } from "@/components/run-dialog";
+import { TriggerPanel } from "@/components/trigger-panel";
 import { RiskBadge } from "@/components/status";
 import { Badge, Button, Card, Dialog, ErrorState, Input, Skeleton } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
@@ -73,6 +74,7 @@ export default function WorkflowEditor() {
     onSuccess: (r) => {
       toast.success(r.unchanged ? `Already published as v${r.version.version}` : `Published v${r.version.version}`);
       qc.invalidateQueries({ queryKey: ["workflow", orgId, id] });
+      qc.invalidateQueries({ queryKey: ["schedule", orgId, id] });
     },
     onError: (e) => {
       if (e instanceof ApiError && Array.isArray(e.details)) setIssues(e.details as ValidationIssue[]);
@@ -180,6 +182,7 @@ export default function WorkflowEditor() {
                 <h2 className="text-sm font-semibold">Graph</h2>
                 <p className="mt-1 text-xs leading-5 text-ink-3">Select a step to edit it. Drag between handles to add a dependency; select an edge and press Backspace to remove it. Ctrl+S saves.</p>
               </div>
+              <TriggerPanel orgId={orgId!} workflowId={id} draft={draft} editable={editable} canRun={can("run:execute")} published={!!latest} onChange={update} />
               <div>
                 <h3 className="mb-2 text-xs font-semibold text-ink-2">Validation</h3>
                 {issues.length === 0 ? (

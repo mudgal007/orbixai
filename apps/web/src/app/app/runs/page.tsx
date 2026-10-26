@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity } from "lucide-react";
+import { Activity, CalendarClock } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { ModeBadge, OutcomeBadge, StatusBadge } from "@/components/status";
 import { Card, EmptyState, ErrorState, Select, Skeleton } from "@/components/ui";
@@ -55,7 +55,9 @@ export default function RunsPage() {
                 <tr key={r.id} className="hover:bg-surface-3/40">
                   <td className="px-4 py-3">
                     <Link href={`/app/runs/${r.id}`} className="font-medium hover:text-indigo">{r.workflow.name}</Link>
-                    <div className="font-mono text-[10px] text-ink-3">v{r.version.version} · {r.id}</div>
+                    <div className="flex items-center gap-1.5 font-mono text-[10px] text-ink-3">
+                      {r.scheduleId && <CalendarClock className="size-3 text-cyan" aria-label="Started by schedule" />}v{r.version.version} · {r.id}
+                    </div>
                   </td>
                   <td className="px-4 py-3"><ModeBadge mode={r.mode} /></td>
                   <td className="px-4 py-3"><StatusBadge status={r.status} /></td>

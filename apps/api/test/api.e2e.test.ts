@@ -197,3 +197,53 @@ describe("tenancy, RBAC and API keys", () => {
     expect(res.body.integrations.find((i: { provider: string }) => i.provider === "gmail")?.status).toBe("roadmap");
   });
 });
+
+describe("scheduled triggers over HTTP", () => {
+  const SCHEDULED =
+    "Every weekday morning, find GitHub issues assigned to me that have not been updated for seven days, summarize each issue, create a follow-up plan, and draft a Slack update for approval.";
+
+  it("publish creates a paused schedule; operators activate it; viewers cannot", async () => {
+    const { agent, orgId } = await signup("sched");
+    const viewer = await signup("sched-viewer");
+    const m = mut(agent);
+    await m.post(`/v1/orgs/${orgId}/connections/sandbox`).send({ provider: "github" }).expect(201);
+    await m.post(`/v1/orgs/${orgId}/connections/sandbox`).send({ provider: "slack" }).expect(201);
+
+    const plan = await m.post(`/v1/orgs/${orgId}/missions/plan`).send({ objective: SCHEDULED }).expect(201);
+    const wfId = plan.body.workflow.id as string;
+    expect(plan.body.workflow.draft.trigger).toEqual({ type: "schedule", cron: "0 9 * * 1-5", timezone: "UTC" });
+
+    // No schedule exists until the workflow is published.
+    expect((await agent.get(`/v1/orgs/${orgId}/workflows/${wfId}/schedule`).expect(200)).body.schedule).toBeNull();
+    await m.put(`/v1/orgs/${orgId}/workflows/${wfId}/schedule`).send({ enabled: true }).expect(404);
+
+    const pub = await m.post(`/v1/orgs/${orgId}/workflows/${wfId}/publish`).expect(201);
+    expect(pub.body.schedule).toMatchObject({ enabled: false, cron: "0 9 * * 1-5", mode: "DRY_RUN" });
+
+    const on = await m.put(`/v1/orgs/${orgId}/workflows/${wfId}/schedule`).send({ enabled: true, mode: "live" }).expect(200);
+    expect(on.body.schedule).toMatchObject({ enabled: true, mode: "LIVE" });
+    expect(on.body.schedule.upcoming).toHaveLength(3);
+    expect(new Date(on.body.schedule.nextRunAt).getTime()).toBeGreaterThan(Date.now());
+
+    const list = await agent.get(`/v1/orgs/${orgId}/schedules`).expect(200);
+    expect(list.body.schedules[0].workflow.id).toBe(wfId);
+    const wfList = await agent.get(`/v1/orgs/${orgId}/workflows`).expect(200);
+    expect(wfList.body.workflows[0].schedule.enabled).toBe(true);
+
+    await mut(agent).post(`/v1/orgs/${orgId}/members`).send({ email: viewer.email, role: "viewer" }).expect(201);
+    await viewer.agent.get(`/v1/orgs/${orgId}/workflows/${wfId}/schedule`).expect(200);
+    await mut(viewer.agent).put(`/v1/orgs/${orgId}/workflows/${wfId}/schedule`).send({ enabled: false }).expect(403);
+    await m.put(`/v1/orgs/${orgId}/workflows/${wfId}/schedule`).send({}).expect(400);
+  });
+
+  it("refuses to publish a schedule that fires more often than every 5 minutes", async () => {
+    const { agent, orgId } = await signup("sched-invalid");
+    const m = mut(agent);
+    const plan = await m.post(`/v1/orgs/${orgId}/missions/plan`).send({ objective: SCHEDULED }).expect(201);
+    const def = { ...plan.body.workflow.draft, trigger: { type: "schedule", cron: "* * * * *", timezone: "UTC" } };
+    const saved = await m.put(`/v1/orgs/${orgId}/workflows/${plan.body.workflow.id}/draft`).send({ definition: def }).expect(200);
+    expect(saved.body.validation.issues.some((i: { code: string }) => i.code === "invalid_schedule")).toBe(true);
+    const res = await m.post(`/v1/orgs/${orgId}/workflows/${plan.body.workflow.id}/publish`).expect(422);
+    expect(res.body.error.details.some((i: { code: string }) => i.code === "invalid_schedule")).toBe(true);
+  });
+});

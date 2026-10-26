@@ -12,3 +12,4 @@ export * from "./rbac";
 export * from "./canonical";
 export * from "./redact";
 export * from "./api";
+export * from "./schedule";

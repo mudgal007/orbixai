@@ -134,6 +134,24 @@ PENDING ──deps ok──▶ READY ──claim──▶ RUNNING ──ok──
 `verified` (Verification agent read provider state back and matched the payload hash). If the
 verifier cannot read evidence, the outcome stays `unverified` — never inferred.
 
+## Scheduled triggers
+
+A workflow whose published trigger is `{ type: "schedule", cron, timezone }` gets a `WorkflowSchedule` row on publish
+(created **paused**; republishing updates cron/timezone; switching to a manual trigger removes it). Each worker calls
+`Scheduler.fireDue()` every `ORBIX_SCHEDULER_INTERVAL_MS` (15 s):
+
+1. In one transaction, due rows are claimed with `FOR UPDATE SKIP LOCKED` and `nextRunAt` is advanced to the next slot
+   **after now** — concurrent workers never both see a slot, and missed slots after downtime are not replayed.
+2. A run is created with `(scheduleId, scheduledFor)`, which is **unique** in the database — a second guard against
+   double execution.
+3. If the previous scheduled run is still active, or the workflow is not ready (e.g. live mode with a revoked
+   connection), the slot is skipped and the reason is stored in `lastError` and the audit log.
+
+Scheduled runs are ordinary runs: every external write still pauses for payload-bound approval. Cron is evaluated
+in the schedule's IANA timezone (DST-aware) and limited to one fire per 5 minutes. All raw SQL compares timestamps in
+UTC explicitly (`now() AT TIME ZONE 'UTC'`), because Prisma stores UTC in `timestamp without time zone` columns and
+the database session timezone may differ.
+
 ## Failure taxonomy & recovery
 
 | Class | Examples | Action |

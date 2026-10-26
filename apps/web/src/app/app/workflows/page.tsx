@@ -4,12 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, Upload, Workflow as WorkflowIcon } from "lucide-react";
+import { CalendarClock, Plus, Upload, Workflow as WorkflowIcon } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { Badge, Button, Card, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
-import { timeAgo } from "@/lib/format";
+import { timeAgo, timeUntil } from "@/lib/format";
 import { useOrg } from "@/lib/hooks";
 
 interface Row {
@@ -19,6 +19,7 @@ interface Row {
   createdAt: string;
   draft: { nodes: unknown[] };
   versions: Array<{ version: number; createdAt: string }>;
+  schedule: { enabled: boolean; cron: string; timezone: string; mode: "DRY_RUN" | "LIVE"; nextRunAt: string | null } | null;
   _count: { runs: number };
 }
 
@@ -73,6 +74,12 @@ export default function WorkflowsPage() {
               <div className="mt-3 flex gap-3 text-[11px] text-ink-3">
                 <span>{w.draft.nodes.length} steps</span>
                 <span>{w._count.runs} runs</span>
+                {w.schedule && (
+                  <span className={`inline-flex items-center gap-1 ${w.schedule.enabled ? "text-cyan" : ""}`} title={`${w.schedule.cron} (${w.schedule.timezone})`}>
+                    <CalendarClock className="size-3" />
+                    {w.schedule.enabled && w.schedule.nextRunAt ? `next ${timeUntil(w.schedule.nextRunAt)}` : "schedule paused"}
+                  </span>
+                )}
                 <span className="ml-auto">{timeAgo(w.createdAt)}</span>
               </div>
             </Link>

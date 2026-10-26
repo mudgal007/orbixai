@@ -7,6 +7,7 @@ import {
   normalizeDefinition,
   topologicalLevels,
   validateWorkflow,
+  type Trigger,
   type ValidationIssue,
   type WorkflowDefinition,
   type WorkflowNode,
@@ -18,6 +19,52 @@ export interface PlanResult {
   planner: string;
   notes: string[];
   issues: ValidationIssue[];
+}
+
+const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/**
+ * Deterministic schedule detection from phrasing like "every morning", "every weekday at 8:30am",
+ * "hourly" or "every Monday". Times default to 09:00 in UTC; the editor lets the user change both.
+ */
+export function detectSchedule(objective: string): { trigger: Trigger; note: string } | null {
+  const t = objective.toLowerCase();
+  const at = t.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  let hour = 9;
+  let minute = 0;
+  if (at) {
+    hour = Number(at[1]) % 24;
+    minute = Number(at[2] ?? 0) % 60;
+    if (at[3] === "pm" && hour < 12) hour += 12;
+    if (at[3] === "am" && hour === 12) hour = 0;
+  }
+  const hhmm = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const day = DAYS.findIndex((d) => new RegExp(`\\bevery ${d}\\b|\\b${d}s\\b`).test(t));
+
+  let cron: string;
+  let label: string;
+  if (/\bevery hour\b|\bhourly\b/.test(t)) {
+    cron = "0 * * * *";
+    label = "every hour";
+  } else if (/\b(every|each) weekday\b|\bweekdays\b/.test(t)) {
+    cron = `${minute} ${hour} * * 1-5`;
+    label = `every weekday at ${hhmm}`;
+  } else if (day >= 0) {
+    cron = `${minute} ${hour} * * ${day}`;
+    label = `every ${DAYS[day]} at ${hhmm}`;
+  } else if (/\b(every|each) week\b|\bweekly\b/.test(t)) {
+    cron = `${minute} ${hour} * * 1`;
+    label = `every Monday at ${hhmm}`;
+  } else if (/\b(every|each) (morning|day)\b|\bdaily\b/.test(t)) {
+    cron = `${minute} ${hour} * * *`;
+    label = `every day at ${hhmm}`;
+  } else {
+    return null;
+  }
+  return {
+    trigger: { type: "schedule", cron, timezone: "UTC" },
+    note: `Scheduled ${label} (UTC, cron "${cron}"). Adjust the timezone in the trigger settings, then publish and enable the schedule.`,
+  };
 }
 
 const ROADMAP_HINTS: Array<[RegExp, string]> = [
@@ -176,7 +223,9 @@ export function heuristicPlan(objective: string): { definition: WorkflowDefiniti
   }
 
   const name = wantsGithub ? "Stale issue follow-up" : "Research digest";
-  const definition: WorkflowDefinition = { schemaVersion: 1, name, objective, trigger: { type: "manual" }, nodes };
+  const schedule = detectSchedule(objective);
+  if (schedule) notes.push(schedule.note);
+  const definition: WorkflowDefinition = { schemaVersion: 1, name, objective, trigger: schedule?.trigger ?? { type: "manual" }, nodes };
   return { definition: layoutNodes(definition), notes };
 }
 
@@ -242,7 +291,7 @@ export async function planWorkflow(objective: string, model: ModelClient): Promi
         schemaVersion: 1,
         name: res.data.name,
         objective,
-        trigger: { type: "manual" },
+        trigger: detectSchedule(objective)?.trigger ?? { type: "manual" },
         nodes: res.data.nodes.map((n) => node({ ...n, agent: n.agent as WorkflowNode["agent"] })),
       };
       const result = finish(def, `llm:${model.name}`, res.data.unsupported.map((u) => `${u} is not available yet; left out.`));

@@ -112,7 +112,7 @@ export async function searchKnowledge(
       WHERE c."organizationId" = $1 AND d."organizationId" = $1
         AND d."embeddingModel" = $3
         AND ($5::text IS NULL OR d.collection = $5)
-        AND (d."retentionUntil" IS NULL OR d."retentionUntil" > now())
+        AND (d."retentionUntil" IS NULL OR d."retentionUntil" > (now() AT TIME ZONE 'UTC'))
         AND NOT EXISTS (SELECT 1 FROM "KnowledgeDocument" n WHERE n."supersedesId" = d.id)
       ORDER BY score DESC
       LIMIT $4`,

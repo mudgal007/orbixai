@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { CredentialBroker } from "@orbix/connectors";
 import { getPrisma, syncIntegrationCatalog } from "@orbix/db";
-import { ExecutionEngine, createModelFromEnv } from "@orbix/engine";
+import { ExecutionEngine, Scheduler, createModelFromEnv } from "@orbix/engine";
 
 /** Structured JSON logs (one object per line) for log shipping. */
 const log = (msg: string, data: Record<string, unknown> = {}) =>
@@ -19,13 +19,16 @@ async function main() {
     leaseMs: Number(process.env.ORBIX_TASK_LEASE_MS ?? 60_000),
     log,
   });
+  const scheduler = new Scheduler(prisma, engine, log);
   await syncIntegrationCatalog(prisma);
   log("worker.started", { workerId, model: model.name, heuristic: model.heuristic });
 
   const concurrency = Number(process.env.ORBIX_WORKER_CONCURRENCY ?? 4);
   const pollMs = Number(process.env.ORBIX_WORKER_POLL_MS ?? 500);
   let stopping = false;
+  const scheduleEveryMs = Number(process.env.ORBIX_SCHEDULER_INTERVAL_MS ?? 15_000);
   let lastMaintenance = 0;
+  let lastSchedule = 0;
 
   const shutdown = (signal: string) => {
     log("worker.stopping", { signal });
@@ -40,6 +43,11 @@ async function main() {
         const m = await engine.maintenance();
         if (m.recovered || m.expired || m.reconciled) log("worker.maintenance", m);
         lastMaintenance = Date.now();
+      }
+      if (Date.now() - lastSchedule > scheduleEveryMs) {
+        const fired = await scheduler.fireDue();
+        for (const f of fired) log(f.runId ? "schedule.fired" : "schedule.skipped", { ...f });
+        lastSchedule = Date.now();
       }
       const claimed = await engine.tick(concurrency);
       if (claimed === 0) await new Promise((r) => setTimeout(r, pollMs));

@@ -11,6 +11,8 @@ import { PRISMA } from "../common/tokens";
 import { ZodPipe } from "../common/zod.pipe";
 
 const SESSION_TTL_MS = 14 * 24 * 60 * 60_000;
+/** Per-IP limit for signup/login (brute-force protection). */
+const AUTH_LIMIT = { default: { limit: Number(process.env.ORBIX_AUTH_RATE_LIMIT_PER_MIN ?? 10), ttl: 60_000 } };
 // Constant-time-ish defence against user enumeration: verify against a dummy hash when no user exists.
 const DUMMY_HASH = "scrypt$32768$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -34,7 +36,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle(AUTH_LIMIT)
   @Post("auth/signup")
   async signup(@Body(new ZodPipe(SignupSchema)) body: { email: string; password: string; name: string }, @Req() req: OrbixRequest, @Res({ passthrough: true }) res: Response) {
     const exists = await this.prisma.user.findUnique({ where: { email: body.email } });
@@ -45,7 +47,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle(AUTH_LIMIT)
   @HttpCode(200)
   @Post("auth/login")
   async login(@Body(new ZodPipe(LoginSchema)) body: { email: string; password: string }, @Req() req: OrbixRequest, @Res({ passthrough: true }) res: Response) {

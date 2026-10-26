@@ -83,6 +83,8 @@ export class ExecutionEngine {
     mode: "dry_run" | "live";
     actor: Actor;
     missionId?: string;
+    /** Set when a schedule fires; (scheduleId, scheduledFor) is unique, so a slot runs at most once. */
+    schedule?: { id: string; scheduledFor: Date };
   }): Promise<MissionRun> {
     const { organizationId } = input;
     const workflow = await this.db.workflow.findFirst({ where: { id: input.workflowId, organizationId } });
@@ -97,13 +99,8 @@ export class ExecutionEngine {
     if (!validation.valid) throw new EngineError("invalid", "Workflow version is invalid", validation.issues);
 
     if (input.mode === "live") {
-      const connections = await this.db.connection.findMany({ where: { organizationId } });
-      const report = simulatePlan(
-        def,
-        connections.map((c) => ({ provider: c.provider, mode: c.mode === "LIVE" ? "live" : "sandbox", scopes: c.scopes, status: c.status.toLowerCase() as "active" })),
-        this.d.model.name,
-      );
-      if (!report.readiness.live) throw new EngineError("invalid", "Workflow is not ready for live execution", report.readiness.blockers);
+      const blockers = await this.liveBlockers(organizationId, def);
+      if (blockers.length) throw new EngineError("invalid", "Workflow is not ready for live execution", blockers);
     }
 
     const sub = await this.db.billingSubscription.findUnique({ where: { organizationId } });
@@ -120,6 +117,8 @@ export class ExecutionEngine {
           triggeredById: input.actor.type === "user" ? input.actor.id : null,
           apiKeyId: input.actor.type === "api_key" ? input.actor.id : null,
           budgetUsd: sub?.runBudgetUsd ?? Number(process.env.ORBIX_RUN_BUDGET_USD ?? 1),
+          scheduleId: input.schedule?.id,
+          scheduledFor: input.schedule?.scheduledFor,
         },
       });
       await tx.taskRun.createMany({
@@ -146,9 +145,20 @@ export class ExecutionEngine {
       action: "run.created",
       targetType: "run",
       targetId: run.id,
-      data: { workflowId: workflow.id, version: version.version, mode: run.mode },
+      data: { workflowId: workflow.id, version: version.version, mode: run.mode, scheduledFor: input.schedule?.scheduledFor },
     });
     return run;
+  }
+
+  /** Reasons a definition cannot run live with the org's current connections (empty when ready). */
+  async liveBlockers(organizationId: string, def: WorkflowDefinition): Promise<string[]> {
+    const connections = await this.db.connection.findMany({ where: { organizationId } });
+    const report = simulatePlan(
+      def,
+      connections.map((c) => ({ provider: c.provider, mode: c.mode === "LIVE" ? "live" : "sandbox", scopes: c.scopes, status: c.status.toLowerCase() as "active" })),
+      this.d.model.name,
+    );
+    return report.readiness.blockers;
   }
 
   async pause(organizationId: string, runId: string, actor: Actor) {
@@ -311,16 +321,18 @@ export class ExecutionEngine {
 
   /** Claims up to `limit` runnable tasks with SKIP LOCKED and executes them concurrently. */
   async tick(limit = 4): Promise<number> {
+    // Columns are timestamp-without-time-zone holding UTC (Prisma convention); compare against UTC
+    // explicitly so behaviour does not depend on the database session TimeZone.
     const ids = await this.db.$queryRaw<Array<{ id: string }>>`
       UPDATE "TaskRun" SET status = 'RUNNING'::"TaskStatus",
              "leaseOwner" = ${this.d.workerId},
-             "leaseExpiresAt" = now() + make_interval(secs => ${this.d.leaseMs / 1000}),
+             "leaseExpiresAt" = (now() AT TIME ZONE 'UTC') + make_interval(secs => ${this.d.leaseMs / 1000}),
              attempt = attempt + 1,
-             "startedAt" = COALESCE("startedAt", now()),
-             "updatedAt" = now()
+             "startedAt" = COALESCE("startedAt", now() AT TIME ZONE 'UTC'),
+             "updatedAt" = now() AT TIME ZONE 'UTC'
        WHERE id IN (
          SELECT t.id FROM "TaskRun" t JOIN "MissionRun" r ON r.id = t."runId"
-          WHERE (t.status = 'READY' OR (t.status = 'RETRY_SCHEDULED' AND t."nextAttemptAt" <= now()))
+          WHERE (t.status = 'READY' OR (t.status = 'RETRY_SCHEDULED' AND t."nextAttemptAt" <= (now() AT TIME ZONE 'UTC')))
             AND r.status IN ('QUEUED', 'RUNNING', 'WAITING_APPROVAL')
           ORDER BY t."createdAt"
           LIMIT ${limit}

@@ -37,6 +37,8 @@ All request bodies are validated with Zod schemas from `@orbix/core`; errors use
 | GET | `/workflows/:id/export` · POST `/workflows/import` | JSON validated by `/schemas/workflow.json` |
 | POST | `/workflows/:id/simulate` | Plan Preview → SimulationReport (no I/O) |
 | POST | `/workflows/:id/runs` [run:execute] | `{ mode: "dry_run" \| "live", versionId? }` |
+| GET | `/schedules` · GET `/workflows/:id/schedule` | schedule + next 3 fire times (cron/timezone come from the published trigger) |
+| PUT | `/workflows/:id/schedule` [run:execute] | `{ enabled?, mode? }` (mode: `dry_run` or `live`) — enabling live requires live readiness |
 | GET | `/runs` · GET `/runs/:id` | run + task runs + tool executions |
 | GET | `/runs/:id/events` | **SSE** stream of RunEvent |
 | POST | `/runs/:id/{pause,resume,cancel,retry}` [run:execute] | |

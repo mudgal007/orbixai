@@ -17,6 +17,7 @@ reports an outcome that is **independently verified** against the provider — n
 | NL mission → workflow graph | ✅ | LLM planner (OpenAI-compatible) with Zod validation + repair; deterministic template planner when no key is set (labelled `orbix-heuristic`) |
 | Visual editor (React Flow) | ✅ | edit nodes/edges, inspector, validation, immutable versioned publish, JSON import/export |
 | Simulation | ✅ | Plan Preview (no I/O) + Dry Run (sandbox connectors) + Live |
+| Scheduled triggers | ✅ | Cron + IANA timezone per workflow (DST-aware); planner detects "every weekday at 8:30am"-style phrasing; schedules start paused and are activated explicitly (dry run or live); double-fire prevented by row locks + a unique (schedule, slot) constraint; overlapping slots skipped; missed slots not replayed; ≥5-minute interval policy |
 | Durable execution | ✅ | Postgres-backed: `FOR UPDATE SKIP LOCKED` claims, leases, checkpoints, retries w/ jitter, dead-letter, pause/resume/cancel/retry |
 | Approvals | ✅ | bound to SHA-256 of the canonical payload, expiring, invalidated on edit, single decision |
 | Recovery | ✅ | failure taxonomy; ambiguous writes reconciled against provider before any retry (tested: no duplicate send) |
@@ -60,13 +61,13 @@ Full containers: `docker compose --profile app up --build` (Dockerfiles are prov
 
 | Suite | Command | Result (this environment) |
 |---|---|---|
-| Core unit (validator, policy, state machines, retry, hashing, redaction, simulation) | `pnpm --filter @orbix/core test` | 16 passed |
+| Core unit (validator, policy, state machines, retry, hashing, redaction, simulation, cron/timezone/DST) | `pnpm --filter @orbix/core test` | 21 passed |
 | Connectors unit (AES-GCM, PKCE, webhook signatures, SSRF, mapping) | `pnpm --filter @orbix/connectors test` | 7 passed |
-| Engine integration (vertical slice, approval binding, edit invalidation, ambiguous-write reconciliation, retries, rejection, expiry, pause/resume, tenancy, audit immutability, knowledge) | `pnpm --filter @orbix/engine test` | 13 passed |
-| API e2e over HTTP (auth/CSRF, slice incl. SSE, publish validation, tenancy 404s, RBAC, API keys, SSRF, credential non-disclosure) | `pnpm --filter @orbix/api test` | 8 passed |
-| Playwright (full UI vertical slice; signed-out redirect) | `pnpm test:e2e` (stack running) | 2 passed |
+| Engine integration (vertical slice, approval binding, edit invalidation, ambiguous-write reconciliation, retries, rejection, expiry, pause/resume, tenancy, audit immutability, knowledge, scheduler concurrency/overlap/missed slots, non-UTC database timezone) | `pnpm --filter @orbix/engine test` | 24 passed |
+| API e2e over HTTP (auth/CSRF, slice incl. SSE, publish validation, tenancy 404s, RBAC, API keys, SSRF, credential non-disclosure, schedule lifecycle + RBAC) | `pnpm --filter @orbix/api test` | 10 passed |
+| Playwright (full UI vertical slice; signed-out redirect; schedule detect → publish → activate) | `pnpm test:e2e` (stack running) | 3 passed |
 
-`pnpm test` runs all Vitest suites (serially — DB-backed suites share a `<db>_test` database that is migrated automatically).
+`pnpm test` runs all Vitest suites (serially — DB-backed suites share a `<db>_test` database that is migrated automatically and forced to a non-UTC session timezone to catch timestamp bugs).
 Windows note: stop running API/worker processes before `pnpm build`/`pnpm test`, because they lock Prisma's engine DLL.
 
 ## Layout

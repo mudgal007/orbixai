@@ -12,9 +12,9 @@ import {
 } from "@orbix/core";
 import { hashPayload } from "@orbix/core/node";
 import { appendAudit, type Prisma, type PrismaClient } from "@orbix/db";
-import { layoutNodes, planWorkflow, type ModelClient } from "@orbix/engine";
-import { Auth, Public, RequirePermission, type AuthContext } from "../common/context";
-import { MODEL, PRISMA } from "../common/tokens";
+import { layoutNodes, planWorkflow, type ModelClient, type Scheduler } from "@orbix/engine";
+import { Auth, Public, RequirePermission, actorOf, type AuthContext } from "../common/context";
+import { MODEL, PRISMA, SCHEDULER } from "../common/tokens";
 import { ZodPipe } from "../common/zod.pipe";
 
 const json = (v: unknown) => v as Prisma.InputJsonValue;
@@ -25,6 +25,7 @@ export class WorkflowsController {
   constructor(
     @Inject(PRISMA) private readonly prisma: PrismaClient,
     @Inject(MODEL) private readonly model: ModelClient,
+    @Inject(SCHEDULER) private readonly scheduler: Scheduler,
   ) {}
 
   private actor(auth: AuthContext) {
@@ -79,7 +80,11 @@ export class WorkflowsController {
     const workflows = await this.prisma.workflow.findMany({
       where: { organizationId: orgId, archived: false },
       orderBy: { createdAt: "desc" },
-      include: { versions: { orderBy: { version: "desc" }, take: 1, select: { version: true, createdAt: true } }, _count: { select: { runs: true } } },
+      include: {
+        versions: { orderBy: { version: "desc" }, take: 1, select: { version: true, createdAt: true } },
+        schedule: { select: { enabled: true, cron: true, timezone: true, mode: true, nextRunAt: true } },
+        _count: { select: { runs: true } },
+      },
     });
     return { workflows };
   }
@@ -157,7 +162,8 @@ export class WorkflowsController {
       return version;
     });
     await appendAudit(this.prisma, { organizationId: orgId, ...this.actor(auth), action: "workflow.published", targetType: "workflow", targetId: id, data: { version: version.version, hash } });
-    return { version, unchanged: false };
+    const schedule = await this.scheduler.syncFromVersion({ organizationId: orgId, workflowId: id, workflowVersionId: version.id, trigger: definition.trigger, actor: actorOf(auth) });
+    return { version, unchanged: false, schedule };
   }
 
   /** Plan Preview: validation, execution path, costs, side effects. Performs no external calls. */

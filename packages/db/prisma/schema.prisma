@@ -147,6 +147,7 @@ model Workflow {
   versions        WorkflowVersion[]
   missions        Mission[]
   runs            MissionRun[]
+  schedule        WorkflowSchedule?
 
   @@index([organizationId, createdAt])
 }
@@ -263,6 +264,9 @@ model MissionRun {
   tokensIn          Int                   @default(0)
   tokensOut         Int                   @default(0)
   estimatedMinutesSaved Int               @default(0)
+  /// Set for runs started by a schedule; unique per fire time so a slot can never run twice.
+  scheduleId        String?
+  scheduledFor      DateTime?
   createdAt         DateTime              @default(now())
   startedAt         DateTime?
   finishedAt        DateTime?
@@ -274,8 +278,33 @@ model MissionRun {
   toolExecutions    ToolExecution[]
   approvals         ApprovalRequest[]
 
+  @@unique([scheduleId, scheduledFor])
   @@index([organizationId, createdAt])
   @@index([organizationId, status])
+}
+
+/// Cron trigger for a workflow. Created from the published version's trigger; activated explicitly.
+model WorkflowSchedule {
+  id                String    @id @default(cuid())
+  organizationId    String
+  workflowId        String    @unique
+  workflowVersionId String
+  cron              String
+  timezone          String
+  mode              RunMode   @default(DRY_RUN)
+  enabled           Boolean   @default(false)
+  nextRunAt         DateTime?
+  lastRunAt         DateTime?
+  lastRunId         String?
+  /// Why the most recent fire did not start a run (not ready, overlap, ...). Cleared on success.
+  lastError         String?
+  createdById       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  workflow          Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, nextRunAt])
+  @@index([organizationId])
 }
 
 model TaskRun {

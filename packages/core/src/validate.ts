@@ -1,5 +1,6 @@
 import { getAgent } from "./agents";
 import { getCapability } from "./capabilities";
+import { checkCron } from "./schedule";
 import { approvalRequiredFor, isNeverAutoRetry, riskRank } from "./risk";
 import { findRefs } from "./templates";
 import { NO_RETRY, WorkflowDefinitionSchema, type WorkflowDefinition, type WorkflowNode } from "./workflow";
@@ -112,6 +113,13 @@ export function validateWorkflow(input: unknown): ValidationResult {
     for (const key of Object.keys(node.inputs)) {
       if (!(key in cap.inputs)) issues.push(warn("unknown_input", `Input "${key}" is not used by ${node.action}`, node.id));
     }
+  }
+
+  if (def.trigger.type === "schedule") {
+    const c = checkCron(def.trigger.cron, def.trigger.timezone);
+    if (!c.ok) issues.push(err("invalid_schedule", c.reason, undefined, "trigger"));
+  } else if (def.trigger.type === "webhook") {
+    issues.push(err("trigger_unavailable", "Webhook triggers are on the roadmap; use manual or schedule", undefined, "trigger"));
   }
 
   const cycle = findCycle(def);

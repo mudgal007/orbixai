@@ -52,6 +52,10 @@ export const CreateKnowledgeDocSchema = z.object({
   sourceUrl: z.string().url().optional(),
 });
 
+export const UpdateScheduleSchema = z
+  .object({ enabled: z.boolean().optional(), mode: z.enum(["dry_run", "live"]).optional() })
+  .refine((v) => v.enabled !== undefined || v.mode !== undefined, "Provide enabled and/or mode");
+
 export type SignupInput = z.infer<typeof SignupSchema>;
 export type CreateRunInput = z.infer<typeof CreateRunSchema>;
 export type ApprovalDecisionInput = z.infer<typeof ApprovalDecisionSchema>;
