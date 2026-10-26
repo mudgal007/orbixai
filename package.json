@@ -16,7 +16,8 @@
     "db:migrate:dev": "pnpm --filter @orbix/db migrate:dev",
     "db:seed": "pnpm --filter @orbix/worker seed",
     "db:reset": "pnpm --filter @orbix/db reset",
-    "db:up": "node tools/dev-db.mjs"
+    "db:up": "node tools/dev-db.mjs",
+    "keys:rotate": "pnpm --filter @orbix/worker keys:rotate --"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

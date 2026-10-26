@@ -1,3 +1,4 @@
+import { telemetry } from "./tracing";
 import { hostname } from "node:os";
 import { CredentialBroker } from "@orbix/connectors";
 import { getPrisma, syncIntegrationCatalog } from "@orbix/db";
@@ -21,7 +22,7 @@ async function main() {
   });
   const scheduler = new Scheduler(prisma, engine, log);
   await syncIntegrationCatalog(prisma);
-  log("worker.started", { workerId, model: model.name, heuristic: model.heuristic });
+  log("worker.started", { workerId, model: model.name, heuristic: model.heuristic, tracing: telemetry.enabled });
 
   const concurrency = Number(process.env.ORBIX_WORKER_CONCURRENCY ?? 4);
   const pollMs = Number(process.env.ORBIX_WORKER_POLL_MS ?? 500);
@@ -57,6 +58,7 @@ async function main() {
     }
   }
   await prisma.$disconnect();
+  await telemetry.shutdown();
   log("worker.stopped");
 }
 

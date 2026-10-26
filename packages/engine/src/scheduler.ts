@@ -1,6 +1,7 @@
 import { nextRun, nextRuns, type Trigger, type WorkflowDefinition } from "@orbix/core";
 import { Prisma, appendAudit, type PrismaClient, type WorkflowSchedule } from "@orbix/db";
 import { EngineError, type Actor, type ExecutionEngine } from "./engine";
+import { withSpan } from "./tracing";
 
 const ACTIVE_RUN = ["QUEUED", "RUNNING", "WAITING_APPROVAL", "PAUSED", "NEEDS_ATTENTION"] as const;
 
@@ -119,33 +120,39 @@ export class Scheduler {
 
     const results: FireResult[] = [];
     for (const s of claimed) {
-      const base = { scheduleId: s.id, workflowId: s.workflowId, scheduledFor: s.nextRunAt };
-      const actor: Actor = { type: "system", id: `schedule:${s.id}` };
-      try {
-        const active = await this.prisma.missionRun.findFirst({ where: { scheduleId: s.id, status: { in: [...ACTIVE_RUN] } }, select: { id: true, status: true } });
-        if (active) throw new EngineError("conflict", `Skipped: previous scheduled run is still ${active.status.toLowerCase().replace(/_/g, " ")}`);
-        const run = await this.engine.createRun({
-          organizationId: s.organizationId,
-          workflowId: s.workflowId,
-          mode: s.mode === "LIVE" ? "live" : "dry_run",
-          actor,
-          schedule: { id: s.id, scheduledFor: s.nextRunAt },
-        });
-        await this.prisma.workflowSchedule.update({ where: { id: s.id }, data: { lastRunId: run.id, lastError: null } });
-        results.push({ ...base, runId: run.id });
-      } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-          results.push({ ...base, skipped: "already fired" });
-          continue;
-        }
-        const reason = e instanceof EngineError ? `${e.message}${Array.isArray(e.details) && typeof e.details[0] === "string" ? `: ${e.details.join("; ")}` : ""}` : (e as Error).message;
-        await this.prisma.workflowSchedule.update({ where: { id: s.id }, data: { lastError: reason.slice(0, 500) } }).catch(() => undefined);
-        await this.audit(s.organizationId, actor, "schedule.skipped", s.workflowId, { scheduledFor: s.nextRunAt, reason });
-        this.log?.("schedule.skipped", { scheduleId: s.id, reason });
-        results.push({ ...base, skipped: reason });
-      }
+      results.push(await withSpan("orbix.schedule.fire", { "orbix.org_id": s.organizationId, "orbix.schedule_id": s.id, "orbix.workflow_id": s.workflowId, "orbix.mode": s.mode }, async (span) => {
+        const r = await this.fireOne(s);
+        span.setAttribute("orbix.schedule.outcome", r.runId ? "fired" : "skipped");
+        return r;
+      }));
     }
     return results;
+  }
+
+  private async fireOne(s: { id: string; organizationId: string; workflowId: string; mode: "DRY_RUN" | "LIVE"; nextRunAt: Date }): Promise<FireResult> {
+    const base = { scheduleId: s.id, workflowId: s.workflowId, scheduledFor: s.nextRunAt };
+    const actor: Actor = { type: "system", id: `schedule:${s.id}` };
+    try {
+      const active = await this.prisma.missionRun.findFirst({ where: { scheduleId: s.id, status: { in: [...ACTIVE_RUN] } }, select: { id: true, status: true } });
+      if (active) throw new EngineError("conflict", `Skipped: previous scheduled run is still ${active.status.toLowerCase().replace(/_/g, " ")}`);
+      const run = await this.engine.createRun({
+        organizationId: s.organizationId,
+        workflowId: s.workflowId,
+        mode: s.mode === "LIVE" ? "live" : "dry_run",
+        actor,
+        schedule: { id: s.id, scheduledFor: s.nextRunAt },
+      });
+      await this.prisma.workflowSchedule.update({ where: { id: s.id }, data: { lastRunId: run.id, lastError: null } });
+      return { ...base, runId: run.id };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ...base, skipped: "already fired" };
+      const details = e instanceof EngineError && Array.isArray(e.details) && typeof e.details[0] === "string" ? `: ${e.details.join("; ")}` : "";
+      const reason = `${(e as Error).message}${details}`;
+      await this.prisma.workflowSchedule.update({ where: { id: s.id }, data: { lastError: reason.slice(0, 500) } }).catch(() => undefined);
+      await this.audit(s.organizationId, actor, "schedule.skipped", s.workflowId, { scheduledFor: s.nextRunAt, reason });
+      this.log?.("schedule.skipped", { scheduleId: s.id, reason });
+      return { ...base, skipped: reason };
+    }
   }
 
   private audit(organizationId: string, actor: Actor, action: string, workflowId: string, data: unknown) {

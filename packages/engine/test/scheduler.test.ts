@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, beforeEach } from "vitest";
 import { CredentialBroker, seedGithubSandbox } from "@orbix/connectors";
 import { bootstrapOrganization, getPrisma, type Prisma } from "@orbix/db";
 import { hashPayload } from "@orbix/core/node";
 import type { Trigger } from "@orbix/core";
 import { ExecutionEngine, HeuristicModel, Scheduler, detectSchedule, planWorkflow } from "../src";
+import { quiesceQueue } from "./helpers";
 
 process.env.ORBIX_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
 
@@ -15,6 +16,7 @@ const scheduler = new Scheduler(prisma, engine);
 const OBJECTIVE =
   "Every weekday morning, find GitHub issues assigned to me that have not been updated for seven days, summarize each issue, create a follow-up plan, and draft a Slack update for approval.";
 
+beforeEach(() => quiesceQueue(prisma));
 afterAll(() => prisma.$disconnect());
 
 /** Org with sandbox connections and a published workflow whose trigger is a schedule. */

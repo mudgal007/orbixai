@@ -7,3 +7,4 @@ export * from "./registry";
 export * from "./faults";
 export { seedGithubSandbox } from "./github/sandbox";
 export { SANDBOX_CHANNELS } from "./slack/sandbox";
+export * from "./rotation";

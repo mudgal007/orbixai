@@ -27,10 +27,12 @@ reports an outcome that is **independently verified** against the provider — n
 | Knowledge (pgvector) | ✅ / 🟡 | Ingest, versioning, retention, org-scoped search with citations. Uses pgvector + HNSW when the extension exists (docker image); falls back to SQL cosine over `float8[]` otherwise. Local dev embeddings are lexical (feature hashing) unless an embedding API is configured. |
 | Developer platform | ✅ | REST + OpenAPI, workflow JSON Schema, signed outbound webhooks (SSRF-guarded), inbound GitHub/Slack signature verification, TS SDK (`packages/sdk`) |
 | Temporal | ⏭ | The engine sits behind `ExecutionEngine`; Postgres-backed durability is used instead (see Architecture → decisions) |
-| Billing, SSO, email invites, OpenTelemetry export | ⏭ | Structured JSON logs are emitted; OTel exporter not wired |
+| Observability | ✅ | OpenTelemetry traces (HTTP, Express, Prisma, plus `orbix.task.execute` / `orbix.tool.invoke` / `orbix.schedule.fire` spans carrying IDs only) exported over OTLP/HTTP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; OAuth callbacks are never traced; structured JSON logs |
+| Secrets at rest | ✅ | AES-256-GCM with a versioned key ring; `pnpm keys:rotate [--dry-run]` re-encrypts credentials, webhook secrets and pending OAuth verifiers (idempotent, audited) |
+| Billing, SSO, email invites, Redis-backed rate limiting | ⏭ | Rate limiting is in-process (per API instance) |
 
 **Not production-ready yet**: live connector paths need verification with real credentials, there is no
-load testing, and OTel/alerting are not wired. Security, recovery and tenancy behaviour *is* covered by tests (below).
+load testing, and alerting on top of the exported traces is not set up. Security, recovery and tenancy behaviour *is* covered by tests (below).
 
 ## Quick start (no Docker required)
 
@@ -50,7 +52,11 @@ Open http://localhost:3000, sign in, then **New mission** → use the first exam
 **Publish** → **Simulate** → **Dry run** → approve in the **Approval inbox** → watch the run reach **Verified**.
 
 With Docker instead: `docker compose up -d postgres` (pgvector image on :5433), then the same steps from `pnpm db:migrate`.
-Full containers: `docker compose --profile app up --build` (Dockerfiles are provided but were **not built in this environment** — Docker Desktop failed to start here).
+Full containers: `docker compose --profile app up --build`. CI builds all three images and smoke-tests the composed stack (Docker Desktop did not start on the original dev machine, so images are verified in CI only).
+
+### Operations
+- **Key rotation**: add the new key as `ORBIX_ENCRYPTION_KEYS="2:<new>,1:<old>"`, restart services, run `pnpm keys:rotate --dry-run` then `pnpm keys:rotate`; once nothing remains on v1, drop it from the list.
+- **Tracing**: set `OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. an OpenTelemetry Collector, Jaeger, Honeycomb, Grafana Tempo) on the API and worker.
 
 ### Real integrations
 - **Model**: set `ORBIX_LLM_API_KEY` (and optionally `ORBIX_LLM_BASE_URL`, `ORBIX_LLM_MODEL`) for any OpenAI-compatible endpoint. `NODE_ENV=production` refuses to start without one.
@@ -62,8 +68,8 @@ Full containers: `docker compose --profile app up --build` (Dockerfiles are prov
 | Suite | Command | Result (this environment) |
 |---|---|---|
 | Core unit (validator, policy, state machines, retry, hashing, redaction, simulation, cron/timezone/DST) | `pnpm --filter @orbix/core test` | 21 passed |
-| Connectors unit (AES-GCM, PKCE, webhook signatures, SSRF, mapping) | `pnpm --filter @orbix/connectors test` | 7 passed |
-| Engine integration (vertical slice, approval binding, edit invalidation, ambiguous-write reconciliation, retries, rejection, expiry, pause/resume, tenancy, audit immutability, knowledge, scheduler concurrency/overlap/missed slots, non-UTC database timezone) | `pnpm --filter @orbix/engine test` | 24 passed |
+| Connectors unit (AES-GCM, key ring, PKCE, webhook signatures, SSRF, mapping) | `pnpm --filter @orbix/connectors test` | 11 passed |
+| Engine integration (vertical slice, approval binding, edit invalidation, ambiguous-write reconciliation, retries, rejection, expiry, pause/resume, tenancy, audit immutability, knowledge, scheduler concurrency/overlap/missed slots, non-UTC database timezone, secret rotation, tracing spans) | `pnpm --filter @orbix/engine test` | 27 passed |
 | API e2e over HTTP (auth/CSRF, slice incl. SSE, publish validation, tenancy 404s, RBAC, API keys, SSRF, credential non-disclosure, schedule lifecycle + RBAC) | `pnpm --filter @orbix/api test` | 10 passed |
 | Playwright (full UI vertical slice; signed-out redirect; schedule detect → publish → activate) | `pnpm test:e2e` (stack running) | 3 passed |
 

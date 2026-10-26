@@ -7,6 +7,7 @@ import { ExecutionEngine, Scheduler, createModelFromEnv, type ModelClient } from
 import { hostname } from "node:os";
 import { AuthGuard } from "./common/auth.guard";
 import { ErrorsFilter } from "./common/errors.filter";
+import { TelemetryShutdown } from "./common/telemetry.shutdown";
 import { BROKER, ENGINE, MODEL, PRISMA, SCHEDULER } from "./common/tokens";
 import { AuthController } from "./modules/auth.controller";
 import { DeveloperController } from "./modules/developer.controller";
@@ -35,6 +36,7 @@ import { WorkflowsController } from "./modules/workflows.controller";
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: ErrorsFilter },
+    TelemetryShutdown,
   ],
 })
 export class AppModule {}

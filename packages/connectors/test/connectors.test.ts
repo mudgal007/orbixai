@@ -6,6 +6,8 @@ import {
   createPkcePair,
   decryptSecret,
   encryptSecret,
+  envelopeVersion,
+  loadKeyRing,
   isPrivateAddress,
   oauthConfig,
   verifyGithubSignature,
@@ -76,5 +78,39 @@ describe("github mapping", () => {
       now,
     );
     expect(i).toMatchObject({ repo: "a/b", daysStale: 10, labels: ["bug"], body: "" });
+  });
+});
+
+describe("key ring", () => {
+  const k1 = randomBytes(32).toString("base64");
+  const k2 = randomBytes(32).toString("base64");
+
+  it("treats the legacy single key as version 1", () => {
+    const ring = loadKeyRing({ ORBIX_ENCRYPTION_KEY: k1 });
+    expect(ring.current).toBe(1);
+    expect(encryptSecret("x", ring).encrypted.startsWith("v1:")).toBe(true);
+  });
+
+  it("encrypts with the newest version and still decrypts older envelopes", () => {
+    const old = encryptSecret("legacy-secret", loadKeyRing({ ORBIX_ENCRYPTION_KEY: k1 })).encrypted;
+    const ring = loadKeyRing({ ORBIX_ENCRYPTION_KEYS: `2:${k2},1:${k1}` });
+    expect(ring.current).toBe(2);
+    expect(decryptSecret(old, ring)).toBe("legacy-secret");
+    const fresh = encryptSecret("new-secret", ring);
+    expect(fresh.keyVersion).toBe(2);
+    expect(envelopeVersion(fresh.encrypted)).toBe(2);
+  });
+
+  it("can pin the encryption version during a staged rollout", () => {
+    const ring = loadKeyRing({ ORBIX_ENCRYPTION_KEYS: `2:${k2},1:${k1}`, ORBIX_ENCRYPTION_KEY_VERSION: "1" });
+    expect(encryptSecret("x", ring).keyVersion).toBe(1);
+  });
+
+  it("fails clearly when a needed key is missing or keys conflict", () => {
+    const v2 = encryptSecret("x", loadKeyRing({ ORBIX_ENCRYPTION_KEYS: `2:${k2}` })).encrypted;
+    expect(() => decryptSecret(v2, loadKeyRing({ ORBIX_ENCRYPTION_KEY: k1 }))).toThrow(/v2 is not configured/);
+    expect(() => loadKeyRing({ ORBIX_ENCRYPTION_KEYS: `1:${k2}`, ORBIX_ENCRYPTION_KEY: k1 })).toThrow(/conflicts/);
+    expect(() => loadKeyRing({ ORBIX_ENCRYPTION_KEYS: "nope" })).toThrow(/Invalid/);
+    expect(() => loadKeyRing({})).toThrow(/not set/);
   });
 });

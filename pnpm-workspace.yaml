@@ -11,3 +11,6 @@ onlyBuiltDependencies:
   - sharp
   - unrs-resolver
   - "@embedded-postgres/windows-x64"
+overrides:
+  # @prisma/instrumentation accepts any 0.x; newer lines need @opentelemetry/api >=1.10 / Node 22.
+  "@opentelemetry/instrumentation": "0.203.0"

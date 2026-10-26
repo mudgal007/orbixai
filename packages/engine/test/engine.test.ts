@@ -4,6 +4,7 @@ import { CredentialBroker, clearFaults, injectFault, seedGithubSandbox } from "@
 import { bootstrapOrganization, getPrisma, verifyAuditChain, type Prisma } from "@orbix/db";
 import { hashPayload } from "@orbix/core/node";
 import { EngineError, ExecutionEngine, HeuristicModel, ingestDocument, planWorkflow, searchKnowledge } from "../src";
+import { quiesceQueue } from "./helpers";
 
 process.env.ORBIX_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
 
@@ -49,7 +50,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.$disconnect();
 });
-beforeEach(() => clearFaults());
+beforeEach(async () => {
+  clearFaults();
+  await quiesceQueue(prisma);
+});
 
 describe("planner", () => {
   it("produces a valid six-step graph for the vertical slice", async () => {

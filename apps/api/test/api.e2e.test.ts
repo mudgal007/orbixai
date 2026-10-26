@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { CredentialBroker } from "@orbix/connectors";
 import { getPrisma } from "@orbix/db";
 import { ExecutionEngine, HeuristicModel } from "@orbix/engine";
@@ -38,6 +38,12 @@ const mut = (agent: ReturnType<typeof request.agent>) => ({
   post: (url: string) => agent.post(url).set("x-orbix-request", "1"),
   put: (url: string) => agent.put(url).set("x-orbix-request", "1"),
   del: (url: string) => agent.delete(url).set("x-orbix-request", "1"),
+});
+
+// drain() claims tasks across all orgs; start every test from a quiet queue (see engine/test/helpers.ts).
+beforeEach(async () => {
+  await prisma.taskRun.updateMany({ where: { status: { in: ["PENDING", "READY", "RUNNING", "RETRY_SCHEDULED"] } }, data: { status: "CANCELLED", leaseOwner: null, leaseExpiresAt: null } });
+  await prisma.missionRun.updateMany({ where: { status: { in: ["QUEUED", "RUNNING"] } }, data: { status: "CANCELLED" } });
 });
 
 beforeAll(async () => {

@@ -26,6 +26,8 @@ import { executeAiCapability } from "./ai";
 import { searchKnowledge } from "./knowledge";
 import type { ModelClient } from "./model";
 import { authorizeToolCall, type PolicyDecision } from "./policy";
+import { SpanStatusCode } from "@opentelemetry/api";
+import { withSpan } from "./tracing";
 import { deliverWebhooks } from "./webhooks";
 
 export interface Actor {
@@ -374,7 +376,21 @@ export class ExecutionEngine {
 
   // ═════════════════════════════ Task execution ═════════════════════════════
 
-  private async execute(task: TaskRun): Promise<void> {
+  private execute(task: TaskRun): Promise<void> {
+    return withSpan(
+      "orbix.task.execute",
+      { "orbix.org_id": task.organizationId, "orbix.run_id": task.runId, "orbix.node": task.nodeKey, "orbix.agent": task.agentKey, "orbix.capability": task.action, "orbix.attempt": task.attempt },
+      async (span) => {
+        await this.executeTask(task);
+        if (!span.isRecording()) return; // telemetry off: no extra query
+        const after = await this.db.taskRun.findUnique({ where: { id: task.id }, select: { status: true } });
+        if (after) span.setAttribute("orbix.task.status", after.status);
+        if (after && ["FAILED", "DEAD_LETTER", "NEEDS_RECONCILIATION"].includes(after.status)) span.setStatus({ code: SpanStatusCode.ERROR, message: after.status });
+      },
+    );
+  }
+
+  private async executeTask(task: TaskRun): Promise<void> {
     const run = await this.db.missionRun.findUnique({ where: { id: task.runId }, include: { version: true } });
     if (!run) return;
     if (run.status === "CANCELLED") {
@@ -449,7 +465,32 @@ export class ExecutionEngine {
     } as const;
   }
 
-  private async invoke(
+  private invoke(
+    task: TaskRun,
+    run: MissionRun,
+    node: WorkflowNode,
+    decision: PolicyDecision,
+    input: Record<string, unknown>,
+    idempotencyKey: string,
+    outputs: Record<string, unknown>,
+  ): Promise<{ output: Record<string, unknown> }> {
+    return withSpan(
+      "orbix.tool.invoke",
+      {
+        "orbix.org_id": run.organizationId,
+        "orbix.run_id": run.id,
+        "orbix.node": node.id,
+        "orbix.capability": decision.capability.id,
+        "orbix.provider": decision.capability.provider,
+        "orbix.mode": decision.connectionMode ?? decision.capability.provider,
+        "orbix.risk": decision.capability.risk,
+        "orbix.attempt": task.attempt,
+      },
+      () => this.invokeTool(task, run, node, decision, input, idempotencyKey, outputs),
+    );
+  }
+
+  private async invokeTool(
     task: TaskRun,
     run: MissionRun,
     node: WorkflowNode,
