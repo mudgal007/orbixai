@@ -1,0 +1,568 @@
+// ORBIX AI data model. Every tenant-owned table carries `organizationId` and is indexed by it.
+// Services always take organizationId from the authenticated guard context, never from input.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Identity & tenancy ─────────────────────────────
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+  sessions     Session[]
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Organization {
+  id           String               @id @default(cuid())
+  name         String
+  slug         String               @unique
+  createdAt    DateTime             @default(now())
+  memberships  Membership[]
+  roles        Role[]
+  subscription BillingSubscription?
+}
+
+model Role {
+  id             String       @id @default(cuid())
+  organizationId String
+  key            String
+  name           String
+  permissions    String[]
+  system         Boolean      @default(true)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberships    Membership[]
+  apiKeys        ApiKey[]
+
+  @@unique([organizationId, key])
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  roleId         String
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model ApiKey {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  prefix         String
+  keyHash        String    @unique
+  roleId         String
+  createdById    String
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  role           Role      @relation(fields: [roleId], references: [id])
+
+  @@index([organizationId])
+}
+
+model BillingSubscription {
+  id               String       @id @default(cuid())
+  organizationId   String       @unique
+  plan             String       @default("developer")
+  status           String       @default("active")
+  runBudgetUsd     Float        @default(1)
+  monthlyBudgetUsd Float        @default(25)
+  currentPeriodEnd DateTime?
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────────── Agents ─────────────────────────────
+
+model Agent {
+  id             String         @id @default(cuid())
+  organizationId String
+  key            String
+  name           String
+  description    String
+  system         Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  versions       AgentVersion[]
+
+  @@unique([organizationId, key])
+}
+
+model AgentVersion {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  agentId             String
+  version             Int
+  allowedCapabilities String[]
+  systemPrompt        String
+  model               String?
+  createdAt           DateTime @default(now())
+  agent               Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, version])
+  @@index([organizationId])
+}
+
+// ───────────────────────────── Workflows ─────────────────────────────
+
+model Workflow {
+  id              String            @id @default(cuid())
+  organizationId  String
+  name            String
+  description     String?
+  draft           Json
+  draftUpdatedAt  DateTime          @default(now())
+  latestVersionId String?
+  createdById     String?
+  archived        Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  versions        WorkflowVersion[]
+  missions        Mission[]
+  runs            MissionRun[]
+
+  @@index([organizationId, createdAt])
+}
+
+model WorkflowVersion {
+  id             String         @id @default(cuid())
+  organizationId String
+  workflowId     String
+  version        Int
+  definition     Json
+  definitionHash String
+  publishedById  String?
+  createdAt      DateTime       @default(now())
+  workflow       Workflow       @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  nodes          WorkflowNode[]
+  edges          WorkflowEdge[]
+  runs           MissionRun[]
+
+  @@unique([workflowId, version])
+  @@index([organizationId])
+}
+
+model WorkflowNode {
+  id                String          @id @default(cuid())
+  organizationId    String
+  workflowVersionId String
+  nodeKey           String
+  agentKey          String
+  action            String
+  risk              String
+  approvalRequired  Boolean
+  config            Json
+  version           WorkflowVersion @relation(fields: [workflowVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowVersionId, nodeKey])
+  @@index([organizationId])
+}
+
+model WorkflowEdge {
+  id                String          @id @default(cuid())
+  organizationId    String
+  workflowVersionId String
+  fromKey           String
+  toKey             String
+  version           WorkflowVersion @relation(fields: [workflowVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowVersionId, fromKey, toKey])
+  @@index([organizationId])
+}
+
+model Mission {
+  id             String       @id @default(cuid())
+  organizationId String
+  objective      String
+  workflowId     String
+  planner        String
+  plannerNotes   Json?
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  workflow       Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  runs           MissionRun[]
+
+  @@index([organizationId, createdAt])
+}
+
+// ───────────────────────────── Execution ─────────────────────────────
+
+enum RunMode {
+  DRY_RUN
+  LIVE
+}
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  WAITING_APPROVAL
+  PAUSED
+  NEEDS_ATTENTION
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum TaskStatus {
+  PENDING
+  READY
+  RUNNING
+  RETRY_SCHEDULED
+  WAITING_APPROVAL
+  NEEDS_RECONCILIATION
+  SUCCEEDED
+  FAILED
+  DEAD_LETTER
+  SKIPPED
+  CANCELLED
+}
+
+model MissionRun {
+  id                String                @id @default(cuid())
+  organizationId    String
+  missionId         String?
+  workflowId        String
+  workflowVersionId String
+  mode              RunMode
+  status            RunStatus             @default(QUEUED)
+  /// pending | completed | acknowledged | verified | unverified | failed
+  outcome           String                @default("pending")
+  outcomeEvidence   Json?
+  triggeredById     String?
+  apiKeyId          String?
+  error             String?
+  budgetUsd         Float
+  costUsd           Float                 @default(0)
+  tokensIn          Int                   @default(0)
+  tokensOut         Int                   @default(0)
+  estimatedMinutesSaved Int               @default(0)
+  createdAt         DateTime              @default(now())
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  mission           Mission?              @relation(fields: [missionId], references: [id], onDelete: SetNull)
+  workflow          Workflow              @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  version           WorkflowVersion       @relation(fields: [workflowVersionId], references: [id])
+  tasks             TaskRun[]
+  checkpoints       ExecutionCheckpoint[]
+  toolExecutions    ToolExecution[]
+  approvals         ApprovalRequest[]
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+}
+
+model TaskRun {
+  id             String           @id @default(cuid())
+  organizationId String
+  runId          String
+  nodeKey        String
+  title          String
+  agentKey       String
+  action         String
+  risk           String
+  dependsOn      String[]
+  status         TaskStatus       @default(PENDING)
+  attempt        Int              @default(0)
+  maxAttempts    Int
+  input          Json?
+  output         Json?
+  error          Json?
+  failureClass   String?
+  nextAttemptAt  DateTime?
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  approvalId     String?
+  idempotencyKey String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  run            MissionRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  toolExecutions ToolExecution[]
+
+  @@unique([runId, nodeKey])
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@index([organizationId])
+}
+
+model ExecutionCheckpoint {
+  id             String     @id @default(cuid())
+  organizationId String
+  runId          String
+  taskRunId      String
+  sequence       Int
+  /// Snapshot of completed node outputs at this point; resumption reads the latest one.
+  state          Json
+  createdAt      DateTime   @default(now())
+  run            MissionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@index([organizationId])
+}
+
+model ToolExecution {
+  id                String     @id @default(cuid())
+  organizationId    String
+  runId             String
+  taskRunId         String
+  capability        String
+  provider          String
+  connectionId      String?
+  mode              String
+  attempt           Int
+  idempotencyKey    String
+  /// STARTED | SUCCEEDED | FAILED | AMBIGUOUS | RECONCILED
+  status            String
+  requestRedacted   Json
+  responseRedacted  Json?
+  externalId        String?
+  model             String?
+  tokensIn          Int        @default(0)
+  tokensOut         Int        @default(0)
+  costUsd           Float      @default(0)
+  latencyMs         Int?
+  error             String?
+  createdAt         DateTime   @default(now())
+  finishedAt        DateTime?
+  run               MissionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  task              TaskRun    @relation(fields: [taskRunId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([idempotencyKey])
+  @@index([runId])
+}
+
+model ApprovalRequest {
+  id             String     @id @default(cuid())
+  organizationId String
+  runId          String
+  taskRunId      String
+  /// PENDING | APPROVED | REJECTED | EXPIRED | INVALIDATED | CONSUMED
+  status         String     @default("PENDING")
+  action         String
+  targetAccount  String
+  payload        Json
+  payloadHash    String
+  reason         String
+  consequences   String
+  evidence       Json
+  approverRole   String?
+  requestedAt    DateTime   @default(now())
+  expiresAt      DateTime
+  decidedById    String?
+  decidedAt      DateTime?
+  comment        String?
+  consumedAt     DateTime?
+  run            MissionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([taskRunId])
+}
+
+model RunEvent {
+  id             BigInt   @id @default(autoincrement())
+  organizationId String
+  runId          String
+  type           String
+  data           Json
+  createdAt      DateTime @default(now())
+
+  @@index([runId, id])
+}
+
+// ───────────────────────────── Integrations ─────────────────────────────
+
+model Integration {
+  id           String   @id @default(cuid())
+  provider     String   @unique
+  name         String
+  /// available | roadmap
+  status       String
+  authType     String
+  capabilities String[]
+}
+
+enum ConnectionMode {
+  SANDBOX
+  LIVE
+}
+
+model Connection {
+  id              String               @id @default(cuid())
+  organizationId  String
+  provider        String
+  label           String
+  mode            ConnectionMode
+  /// ACTIVE | ERROR | REVOKED
+  status          String               @default("ACTIVE")
+  scopes          String[]
+  externalAccount Json?
+  lastError       String?
+  createdById     String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  credential      CredentialReference?
+
+  @@index([organizationId, provider])
+}
+
+model CredentialReference {
+  id             String     @id @default(cuid())
+  organizationId String
+  connectionId   String     @unique
+  /// oauth | token
+  kind           String
+  /// AES-256-GCM envelope "v<keyVersion>:<iv>:<tag>:<ciphertext>" of {accessToken, refreshToken?}
+  encrypted      String
+  keyVersion     Int
+  expiresAt      DateTime?
+  rotatedAt      DateTime?
+  createdAt      DateTime   @default(now())
+  connection     Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model OAuthState {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  userId                String
+  provider              String
+  stateHash             String    @unique
+  codeVerifierEncrypted String
+  expiresAt             DateTime
+  consumedAt            DateTime?
+  createdAt             DateTime  @default(now())
+}
+
+/// Durable state for sandbox connectors (seeded GitHub issues, posted Slack messages).
+model MockProviderRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  provider       String
+  kind           String
+  externalId     String
+  data           Json
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, provider, kind, externalId])
+  @@index([organizationId, provider, kind])
+}
+
+// ───────────────────────────── Audit, usage, developer ─────────────────────────────
+
+model AuditEvent {
+  id             String   @id @default(cuid())
+  organizationId String
+  seq            Int
+  actorType      String
+  actorId        String?
+  action         String
+  targetType     String?
+  targetId       String?
+  data           Json
+  prevHash       String
+  hash           String
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, seq])
+  @@index([organizationId, createdAt])
+}
+
+model UsageRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  runId          String?
+  taskRunId      String?
+  /// model | tool
+  kind           String
+  model          String?
+  provider       String?
+  tokensIn       Int      @default(0)
+  tokensOut      Int      @default(0)
+  costUsd        Float    @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+model WebhookSubscription {
+  id              String    @id @default(cuid())
+  organizationId  String
+  url             String
+  events          String[]
+  secretEncrypted String
+  active          Boolean   @default(true)
+  lastDeliveryAt  DateTime?
+  lastStatus      Int?
+  createdAt       DateTime  @default(now())
+
+  @@index([organizationId])
+}
+
+// ───────────────────────────── Knowledge ─────────────────────────────
+
+model KnowledgeDocument {
+  id             String           @id @default(cuid())
+  organizationId String
+  collection     String
+  title          String
+  sourceUrl      String?
+  version        Int              @default(1)
+  contentHash    String
+  /// Embedding space of this document's chunks; search only compares within one model.
+  embeddingModel String           @default("orbix-hash-256")
+  /// Previous version this document supersedes (versioned knowledge entries).
+  supersedesId   String?
+  createdById    String?
+  retentionUntil DateTime?
+  createdAt      DateTime         @default(now())
+  chunks         KnowledgeChunk[]
+
+  @@index([organizationId, collection])
+}
+
+model KnowledgeChunk {
+  id             String                      @id @default(cuid())
+  organizationId String
+  documentId     String
+  ordinal        Int
+  content        String
+  tokenCount     Int
+  /// 256-dim embedding. When pgvector is installed, migration 20261026095000_pgvector_and_audit mirrors it into an indexed
+  /// vector(256) column (embedding_vec) for ANN search; otherwise cosine runs over float8[].
+  embedding      Float[]
+  document       KnowledgeDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([documentId])
+}

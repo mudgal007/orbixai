@@ -1,0 +1,121 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+/* ORBIX design tokens — midnight surfaces, electric indigo, subtle cyan. Dark-first by design. */
+@theme {
+  --color-bg: #060a14;
+  --color-surface: #0b1120;
+  --color-surface-2: #0f1729;
+  --color-surface-3: #151f36;
+  --color-line: rgb(148 163 255 / 0.09);
+  --color-line-strong: rgb(148 163 255 / 0.18);
+  --color-ink: #e8ecf8;
+  --color-ink-2: #a6b0cc;
+  --color-ink-3: #6b7594;
+  --color-indigo: #7c83ff;
+  --color-indigo-strong: #5b62f5;
+  --color-cyan: #38d6f0;
+  --color-good: #22c55e;
+  --color-warn: #fab219;
+  --color-serious: #ec835a;
+  --color-critical: #f05252;
+  /* chart roles (validated against --color-surface; see apps/web/README note) */
+  --color-viz-good: #0ca30c;
+  --color-viz-critical: #d03b3b;
+  --color-viz-neutral: #64748b;
+  --color-viz-series-1: #3987e5;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
+
+  --radius-xl: 14px;
+  --shadow-glow: 0 0 0 1px rgb(124 131 255 / 0.35), 0 8px 32px -8px rgb(124 131 255 / 0.45);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, rgb(91 98 245 / 0.10), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, rgb(56 214 240 / 0.06), transparent 60%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+::selection {
+  background: rgb(124 131 255 / 0.35);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-indigo);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.glass {
+  background: linear-gradient(180deg, rgb(21 31 54 / 0.72), rgb(11 17 32 / 0.72));
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--color-line);
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(var(--color-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* React Flow theming */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: rgb(148 163 255 / 0.35);
+  --xy-edge-stroke-selected: var(--color-indigo);
+  --xy-connectionline-stroke: var(--color-cyan);
+  --xy-minimap-background-color: var(--color-surface);
+  --xy-controls-button-background-color: var(--color-surface-2);
+  --xy-controls-button-background-color-hover: var(--color-surface-3);
+  --xy-controls-button-color: var(--color-ink-2);
+  --xy-controls-button-border-color: var(--color-line);
+  --xy-attribution-background-color: transparent;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  background: var(--color-surface-3);
+  border: 2px solid var(--color-indigo);
+}
+.react-flow__edge.animated path {
+  stroke: var(--color-cyan);
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgb(56 214 240 / 0.45); }
+  100% { box-shadow: 0 0 0 12px rgb(56 214 240 / 0); }
+}
+.pulse-ring {
+  animation: pulse-ring 1.4s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+[cmdk-item][data-selected="true"] {
+  background: var(--color-surface-3);
+}

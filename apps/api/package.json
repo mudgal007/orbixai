@@ -1,0 +1,42 @@
+{
+  "name": "@orbix/api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "dotenv -e ../../.env -- nest start --watch --path tsconfig.build.json",
+    "start": "node dist/main.js",
+    "test": "dotenv -e ../../.env -- vitest run"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.1.8",
+    "@nestjs/core": "11.1.8",
+    "@nestjs/platform-express": "11.1.8",
+    "@nestjs/swagger": "11.2.1",
+    "@nestjs/throttler": "6.4.0",
+    "@orbix/connectors": "workspace:*",
+    "@orbix/core": "workspace:*",
+    "@orbix/db": "workspace:*",
+    "@orbix/engine": "workspace:*",
+    "cookie-parser": "1.4.7",
+    "helmet": "8.1.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "4.1.13"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "11.0.10",
+    "@swc/core": "1.13.5",
+    "@types/cookie-parser": "1.4.9",
+    "@types/express": "5.0.3",
+    "@types/node": "^22.10.0",
+    "@types/supertest": "6.0.3",
+    "dotenv-cli": "^8.0.0",
+    "supertest": "7.1.4",
+    "typescript": "5.9.3",
+    "unplugin-swc": "1.5.7",
+    "vitest": "3.2.4"
+  }
+}

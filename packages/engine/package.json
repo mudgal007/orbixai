@@ -1,0 +1,19 @@
+{
+  "name": "@orbix/engine",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "dotenv -e ../../.env -- vitest run"
+  },
+  "dependencies": {
+    "@orbix/core": "workspace:*",
+    "@orbix/db": "workspace:*",
+    "@orbix/connectors": "workspace:*",
+    "zod": "4.1.13"
+  },
+  "devDependencies": { "vitest": "3.2.4", "typescript": "5.9.3", "@types/node": "^22.10.0", "dotenv-cli": "^8.0.0" }
+}

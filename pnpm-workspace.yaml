@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - "@swc/core"
+  - esbuild
+  - "@nestjs/core"
+  - sharp
+  - unrs-resolver
+  - "@embedded-postgres/windows-x64"
