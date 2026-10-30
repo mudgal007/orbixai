@@ -144,6 +144,40 @@ export class IntegrationsController {
     }
   }
 
+  /** Re-checks a live connection with the provider (scopes, account, validity) using the stored token. */
+  @Post("orgs/:orgId/connections/:id/refresh")
+  @HttpCode(200)
+  @RequirePermission("connection:manage")
+  async refresh(@Param("orgId") orgId: string, @Param("id") id: string, @Auth() auth: AuthContext) {
+    const conn = await this.prisma.connection.findFirst({ where: { id, organizationId: orgId, status: { not: "REVOKED" } } });
+    if (!conn) throw new NotFoundException("Connection not found");
+    if (conn.mode !== "LIVE" || (conn.provider !== "github" && conn.provider !== "slack")) {
+      throw new BadRequestException({ code: "not_refreshable", message: "Only live GitHub and Slack connections can be refreshed" });
+    }
+    const secret = await this.broker.readSecret(orgId, conn.id);
+    if (!secret) throw new BadRequestException({ code: "no_credential", message: "This connection has no stored credential; reconnect it" });
+    let updated;
+    try {
+      const info = await inspectToken(conn.provider, secret.accessToken);
+      updated = await this.prisma.connection.update({
+        where: { id: conn.id },
+        data: { scopes: info.scopes, externalAccount: info.account as object, status: "ACTIVE", lastError: null },
+      });
+    } catch (e) {
+      updated = await this.prisma.connection.update({ where: { id: conn.id }, data: { status: "ERROR", lastError: (e as Error).message.slice(0, 300) } });
+    }
+    await appendAudit(this.prisma, {
+      organizationId: orgId,
+      actorType: auth.kind,
+      actorId: auth.userId ?? auth.apiKeyId,
+      action: "connection.refreshed",
+      targetType: "connection",
+      targetId: conn.id,
+      data: { status: updated.status, scopesBefore: conn.scopes, scopesAfter: updated.scopes },
+    });
+    return { connection: publicConnection(updated) };
+  }
+
   @Delete("orgs/:orgId/connections/:id")
   @HttpCode(200)
   @RequirePermission("connection:manage")

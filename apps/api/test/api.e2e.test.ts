@@ -253,3 +253,22 @@ describe("scheduled triggers over HTTP", () => {
     expect(res.body.error.details.some((i: { code: string }) => i.code === "invalid_schedule")).toBe(true);
   });
 });
+
+describe("connection refresh", () => {
+  it("only live connections can be refreshed, within the org, by connection managers", async () => {
+    const a = await signup("refresh-a");
+    const b = await signup("refresh-b");
+    const sandbox = await mut(a.agent).post(`/v1/orgs/${a.orgId}/connections/sandbox`).send({ provider: "slack" }).expect(201);
+    const res = await mut(a.agent).post(`/v1/orgs/${a.orgId}/connections/${sandbox.body.connection.id}/refresh`).expect(400);
+    expect(res.body.error.code).toBe("not_refreshable");
+
+    // A live connection with no stored credential cannot be re-checked.
+    const live = await prisma.connection.create({ data: { organizationId: a.orgId, provider: "slack", label: "live", mode: "LIVE", scopes: ["chat:write"] } });
+    expect((await mut(a.agent).post(`/v1/orgs/${a.orgId}/connections/${live.id}/refresh`).expect(400)).body.error.code).toBe("no_credential");
+
+    // Other orgs and viewers are refused.
+    await mut(b.agent).post(`/v1/orgs/${b.orgId}/connections/${live.id}/refresh`).expect(404);
+    await mut(a.agent).post(`/v1/orgs/${a.orgId}/members`).send({ email: b.email, role: "viewer" }).expect(201);
+    await mut(b.agent).post(`/v1/orgs/${a.orgId}/connections/${live.id}/refresh`).expect(403);
+  });
+});

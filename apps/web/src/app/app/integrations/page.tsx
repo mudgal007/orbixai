@@ -3,7 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, KeyRound, Link2, Plug, ShieldCheck, Trash2 } from "lucide-react";
+import { FlaskConical, KeyRound, Link2, Plug, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { RiskBadge } from "@/components/status";
@@ -62,6 +62,15 @@ function Inner() {
       refresh();
     },
   });
+  const refreshConn = useMutation({
+    mutationFn: (id: string) => api<{ connection: Connection }>(`/orgs/${orgId}/connections/${id}/refresh`, { method: "POST" }),
+    onSuccess: (r) => {
+      if (r.connection.status === "ACTIVE") toast.success(`Re-checked with the provider. Scopes: ${r.connection.scopes.join(", ") || "none reported"}`);
+      else toast.error(`Provider rejected the token: ${r.connection.lastError ?? "unknown error"}`);
+      refresh();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Refresh failed"),
+  });
   const oauth = useMutation({
     mutationFn: (provider: string) => api<{ url: string }>(`/orgs/${orgId}/connections/oauth/${provider}/start`),
     onSuccess: (r) => (window.location.href = r.url),
@@ -70,7 +79,7 @@ function Inner() {
 
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   if (!q.data) return <Skeleton className="h-96" />;
-  const active = q.data.connections.filter((c) => c.status === "ACTIVE");
+  const active = q.data.connections.filter((c) => c.status === "ACTIVE" || c.status === "ERROR");
 
   return (
     <div className="space-y-6">
@@ -88,10 +97,14 @@ function Inner() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium">{c.label}</span>
-                    {c.mode === "LIVE" ? <Badge tone="good">live</Badge> : <Badge tone="cyan">sandbox</Badge>}
+                    {c.status === "ERROR" ? <Badge tone="critical">error</Badge> : c.mode === "LIVE" ? <Badge tone="good">live</Badge> : <Badge tone="cyan">sandbox</Badge>}
                   </div>
                   <div className="mt-1 text-[11px] text-ink-3">{c.mode === "LIVE" ? `Scopes: ${c.scopes.join(", ") || "—"}` : "Seeded mock data · no external calls"} · {timeAgo(c.createdAt)}</div>
+                  {c.lastError && <div className="mt-1 text-[11px] text-critical">{c.lastError}</div>}
                 </div>
+                {manage && c.mode === "LIVE" && (
+                  <Button size="sm" variant="ghost" title="Re-check scopes and validity with the provider" aria-label={`Refresh ${c.label}`} loading={refreshConn.isPending && refreshConn.variables === c.id} icon={<RefreshCw className="size-3.5" />} onClick={() => refreshConn.mutate(c.id)} />
+                )}
                 {manage && (
                   <Button size="sm" variant="ghost" aria-label={`Revoke ${c.label}`} icon={<Trash2 className="size-3.5" />} onClick={() => confirm(`Revoke ${c.label}?`) && revoke.mutate(c.id)} />
                 )}
