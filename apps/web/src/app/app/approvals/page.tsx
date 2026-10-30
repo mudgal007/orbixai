@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertOctagon, Check, ExternalLink, Fingerprint, Inbox, MessageSquare, PencilLine, ShieldAlert, X } from "lucide-react";
+import { AlertOctagon, Check, CircleSlash, ExternalLink, Fingerprint, Inbox, MessageSquare, PencilLine, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { ModeBadge, StatusBadge } from "@/components/status";
@@ -157,6 +157,19 @@ function ApprovalDetail({ approval }: { approval: Approval }) {
               <ul className="mt-2 space-y-1">
                 {warnings.slice(0, 5).map((w, i) => (
                   <li key={i} className="font-mono text-[10px] text-ink-3">{w.kind}: “{w.excerpt}”</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {approval.evidence.preflight && (
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-3">Pre-flight checks</h3>
+              <ul className="mt-1.5 space-y-1">
+                {approval.evidence.preflight.checks.map((c) => (
+                  <li key={c.name} className={`flex items-start gap-2 text-xs ${c.skipped ? "text-ink-3" : "text-good"}`}>
+                    {c.skipped ? <CircleSlash className="mt-0.5 size-3.5 shrink-0" /> : <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />}
+                    <span>{c.detail}</span>
+                  </li>
                 ))}
               </ul>
             </div>

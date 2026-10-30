@@ -29,11 +29,30 @@ export interface ReconcileResult {
   externalId?: string;
 }
 
+export interface PreflightCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+  /** True when the check could not run (e.g. missing optional scope) and was not enforced. */
+  skipped?: boolean;
+}
+
+export interface PreflightResult {
+  checks: PreflightCheck[];
+  /** Provider facts discovered by the checks (e.g. resolved channel id), shown as approval evidence. */
+  resolved?: Record<string, unknown>;
+}
+
 export interface Connector {
   provider: string;
   mode: ConnectorMode;
   invoke(capabilityId: string, input: Record<string, unknown>, ctx: InvokeContext): Promise<InvokeResult>;
   reconcile?(capabilityId: string, input: Record<string, unknown>, ctx: InvokeContext): Promise<ReconcileResult>;
+  /**
+   * Read-only checks run before an external write is offered for approval. Throws an ExecutionError
+   * for problems that would make the write fail (so nobody approves something that cannot succeed).
+   */
+  preflight?(capabilityId: string, input: Record<string, unknown>, ctx: InvokeContext): Promise<PreflightResult | null>;
 }
 
 export interface GithubIssue {

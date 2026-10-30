@@ -20,7 +20,7 @@ import {
   type WorkflowNode,
 } from "@orbix/core";
 import { hashPayload, sha256 } from "@orbix/core/node";
-import type { CredentialBroker, InvokeResult } from "@orbix/connectors";
+import type { CredentialBroker, InvokeResult, PreflightResult } from "@orbix/connectors";
 import { Prisma, appendAudit, emitRunEvent, type MissionRun, type PrismaClient, type TaskRun } from "@orbix/db";
 import { executeAiCapability } from "./ai";
 import { searchKnowledge } from "./knowledge";
@@ -419,9 +419,17 @@ export class ExecutionEngine {
       const input = (task.approvalId && task.input ? task.input : resolveTemplates(node.inputs, outputs)) as Record<string, unknown>;
       const decision = await authorizeToolCall(this.db, { organizationId: run.organizationId, runMode: run.mode, node });
 
+      // Read-only provider checks (e.g. channel exists, bot is a member) run before the write is offered
+      // for approval, so a human never approves something that cannot succeed. Failures throw.
+      let preflight: PreflightResult | null = null;
+      if (decision.connector?.preflight) {
+        preflight = await decision.connector.preflight(node.action, input, this.connectorCtx(run, decision, `preflight:${task.id}`, node.timeoutMs));
+        if (preflight) await emitRunEvent(this.db, run.organizationId, run.id, "task.preflight", { nodeKey: node.id, checks: preflight.checks });
+      }
+
       if (node.approval.required || approvalRequiredFor(node.risk)) {
         const payload = { action: node.action, target: { provider: decision.capability.provider, connectionId: decision.connectionId ?? null, label: decision.targetLabel }, input };
-        const ok = await this.approvalGate(task, run, def, node, decision, payload, input);
+        const ok = await this.approvalGate(task, run, def, node, decision, payload, input, preflight);
         if (!ok) return;
       }
 
@@ -615,6 +623,7 @@ export class ExecutionEngine {
     decision: PolicyDecision,
     payload: Record<string, unknown>,
     input: Record<string, unknown>,
+    preflight: PreflightResult | null = null,
   ): Promise<boolean> {
     const hash = hashPayload(payload);
     if (task.approvalId) {
@@ -633,7 +642,7 @@ export class ExecutionEngine {
       }
     }
 
-    const evidence = await this.collectEvidence(run.id, run.mode);
+    const evidence = { ...(await this.collectEvidence(run.id, run.mode)), ...(preflight ? { preflight } : {}) };
     const cap = decision.capability;
     const approval = await this.withRunLock(run.id, async (tx) => {
       const created = await tx.approvalRequest.create({

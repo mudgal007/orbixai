@@ -75,6 +75,7 @@ export interface Approval {
     upstream?: Array<{ nodeKey: string; title: string; action: string }>;
     injectionWarnings?: Array<{ source: string; kind: string; excerpt: string }>;
     revisedFrom?: string;
+    preflight?: { checks: Array<{ name: string; ok: boolean; detail: string; skipped?: boolean }>; resolved?: Record<string, unknown> };
   };
   approverRole: string | null;
   requestedAt: string;

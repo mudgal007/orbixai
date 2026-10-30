@@ -257,3 +257,33 @@ describe("knowledge", () => {
     expect(await searchKnowledge(prisma, model, { organizationId: b.org.id, query: "gripper torque calibration" })).toEqual([]);
   });
 });
+
+describe("pre-flight checks before approval", () => {
+  it("fails a post to a missing channel before any approval is requested", async () => {
+    const { org, wf, user, plan } = await makeOrg("preflight-bad");
+    const def = structuredClone(plan.definition);
+    def.nodes.find((n) => n.action === "slack.message.post")!.inputs.channel = "#does-not-exist";
+    const v = await prisma.workflowVersion.create({
+      data: { organizationId: org.id, workflowId: wf.id, version: 2, definition: def as unknown as Prisma.InputJsonValue, definitionHash: hashPayload(def) },
+    });
+    const run = await engine.createRun({ organizationId: org.id, workflowId: wf.id, versionId: v.id, mode: "dry_run", actor: { type: "user", id: user.id } });
+    await drain();
+
+    const post = await prisma.taskRun.findFirstOrThrow({ where: { runId: run.id, action: "slack.message.post" } });
+    expect(post.status).toBe("FAILED");
+    expect((post.error as { message: string }).message).toMatch(/"#does-not-exist" does not exist/);
+    expect(await prisma.approvalRequest.count({ where: { runId: run.id } })).toBe(0);
+    expect((await prisma.missionRun.findUniqueOrThrow({ where: { id: run.id } })).status).toBe("FAILED");
+  });
+
+  it("attaches the passed channel check to the approval as evidence", async () => {
+    const { org, wf, user } = await makeOrg("preflight-ok");
+    const run = await engine.createRun({ organizationId: org.id, workflowId: wf.id, mode: "dry_run", actor: { type: "user", id: user.id } });
+    await drain();
+    const approval = await pendingApproval(run.id);
+    const evidence = approval.evidence as { preflight?: { checks: Array<{ ok: boolean; detail: string }>; resolved?: { channelId?: string } } };
+    expect(evidence.preflight?.checks[0]?.ok).toBe(true);
+    expect(evidence.preflight?.resolved?.channelId).toBe("C0SBXENG01");
+    expect(await prisma.runEvent.count({ where: { runId: run.id, type: "task.preflight" } })).toBe(1);
+  });
+});

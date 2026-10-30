@@ -46,7 +46,7 @@ export default function RunMonitor() {
       refetchTimer.current = setTimeout(() => qc.invalidateQueries({ queryKey: ["run", orgId, id] }), 150);
       if (payload.type.startsWith("approval")) qc.invalidateQueries({ queryKey: ["approvals"] });
     };
-    for (const t of ["run.created", "run.status", "task.status", "tool.called", "approval.requested", "approval.decided", "approval.expired", "task.reconciled", "security.injection_detected", "run.finalized"]) {
+    for (const t of ["run.created", "run.status", "task.status", "tool.called", "approval.requested", "approval.decided", "approval.expired", "task.reconciled", "task.preflight", "security.injection_detected", "run.finalized"]) {
       es.addEventListener(t, onEvent as EventListener);
     }
     es.onopen = () => setLive(true);
@@ -178,6 +178,7 @@ function describe(e: LiveEvent, tasks: TaskRun[]): string {
     case "approval.decided": return `Approval ${String(e.data.decision)}d`;
     case "approval.expired": return "Approval expired";
     case "task.reconciled": return `Reconciled ${title(e.data.nodeKey)}: ${e.data.found ? "delivered" : "not delivered"}`;
+    case "task.preflight": return `Pre-flight for ${title(e.data.nodeKey)}: ${((e.data.checks as Array<{ detail: string }> | undefined) ?? []).map((c) => c.detail).join("; ")}`;
     case "security.injection_detected": return `Prompt-injection pattern detected in input to ${title(e.data.nodeKey)} — treated as data`;
     case "run.finalized": return `Run finalized: ${String(e.data.status).toLowerCase()}, outcome ${String(e.data.outcome)}`;
     default: return e.type;

@@ -69,6 +69,23 @@ export const slackSandbox: Connector = {
         throw new ExecutionError("permanent", `Slack sandbox does not implement ${capabilityId}`);
     }
   },
+  async preflight(capabilityId, input) {
+    if (capabilityId !== "slack.message.post") return null;
+    const raw = String(input.channel ?? "");
+    const name = raw.replace(/^#/, "");
+    const hit = SANDBOX_CHANNELS.find((c) => c.id === raw || c.name === name);
+    if (!hit) {
+      throw new ExecutionError(
+        "permanent",
+        `Sandbox Slack channel "${raw}" does not exist. Sandbox channels: ${SANDBOX_CHANNELS.map((c) => `#${c.name}`).join(", ")}.`,
+        { providerCode: "channel_not_found" },
+      );
+    }
+    return {
+      checks: [{ name: "channel", ok: true, detail: `#${hit.name} (${hit.id}) found in the sandbox workspace` }],
+      resolved: { channelId: hit.id, channelName: hit.name, private: false },
+    };
+  },
   async reconcile(capabilityId, _input, ctx) {
     if (capabilityId !== "slack.message.post") return { found: false };
     const hit = await findByKey(ctx);
