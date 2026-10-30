@@ -99,6 +99,49 @@ export function layoutNodes(def: WorkflowDefinition): WorkflowDefinition {
   return { ...def, nodes: def.nodes.map((n) => ({ ...n, position: n.position ?? pos.get(n.id) ?? { x: 0, y: 0 } })) };
 }
 
+/**
+ * Deterministic guard for model plans: when the objective names a Slack destination and the plan drafts a
+ * message but never sends it (models often read "draft … for approval" as "stop at the draft"), add the
+ * post step and its verification. The post is an external write, so policy makes it wait for approval.
+ */
+export function ensureSlackDelivery(def: WorkflowDefinition, objective: string): { definition: WorkflowDefinition; note?: string } {
+  const text = objective.toLowerCase();
+  const wantsSlack = /\bslack\b|#[a-z0-9][\w-]*/.test(text);
+  const forbidsSending = /\b(do not|don't|dont|never|without)\s+(post|send|sending|posting)\b/.test(text);
+  if (!wantsSlack || forbidsSending || def.nodes.some((n) => n.action === "slack.message.post")) return { definition: def };
+  const draft = [...def.nodes].reverse().find((n) => n.action === "ai.draft_message");
+  if (!draft) return { definition: def };
+
+  const channel = objective.match(/#([a-z0-9][\w-]*)/i)?.[0] ?? "#eng-updates";
+  const ids = new Set(def.nodes.map((n) => n.id));
+  const postId = ids.has("post_update") ? "post_update_slack" : "post_update";
+  const verifyId = ids.has("verify_post") ? "verify_post_slack" : "verify_post";
+  const added: WorkflowNode[] = [
+    node({
+      id: postId,
+      title: `Post to ${channel}`,
+      agent: "communication",
+      action: "slack.message.post",
+      inputs: { channel, text: `{{nodes.${draft.id}.output.text}}` },
+      dependsOn: [draft.id],
+    }),
+    node({
+      id: verifyId,
+      title: "Verify message in Slack",
+      agent: "verification",
+      action: "slack.message.verify",
+      inputs: { channel: `{{nodes.${postId}.output.channel}}`, ts: `{{nodes.${postId}.output.ts}}`, expectedText: `{{nodes.${postId}.output.text}}` },
+      dependsOn: [postId],
+      retry: { maxAttempts: 3, backoffMs: 2_000, maxBackoffMs: 10_000 },
+      successCondition: { path: "verified", op: "equals", value: true },
+    }),
+  ];
+  return {
+    definition: { ...def, nodes: [...def.nodes.map((n) => ({ ...n, position: undefined })), ...added] },
+    note: `Added "Post to ${channel}" (pauses for your approval of the exact message) and a verification step after "${draft.title}".`,
+  };
+}
+
 /** Deterministic template planner used when no LLM is configured (and as a fallback). */
 export function heuristicPlan(objective: string): { definition: WorkflowDefinition; notes: string[] } {
   const text = objective.toLowerCase();
@@ -277,7 +320,12 @@ export async function planWorkflow(objective: string, model: ModelClient): Promi
     "marked available. Use roadmap capabilities never; list them in `unsupported`. Each node uses an agent " +
     "whose `allowed` list contains the action. Wire outputs with \"{{nodes.<id>.output.<field>}}\" and list " +
     "that node in dependsOn. Node ids are snake_case. After any externally visible write, add a verification step " +
-    "when a verify capability exists.";
+    "when a verify capability exists.\n\n" +
+    "Approval is enforced by the platform, not by you: every externally visible write automatically pauses for a " +
+    "human to approve the exact payload before it is sent. So when the objective says to draft, prepare or submit " +
+    "something \"for approval\" / \"for my review\" in a destination (a Slack channel, an issue, an inbox), include the " +
+    "step that actually sends it there, fed by the draft step's output — do not stop at the draft. Only omit the send " +
+    "step if the objective explicitly says not to send or post anything.";
   let feedback = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -294,7 +342,10 @@ export async function planWorkflow(objective: string, model: ModelClient): Promi
         trigger: detectSchedule(objective)?.trigger ?? { type: "manual" },
         nodes: res.data.nodes.map((n) => node({ ...n, agent: n.agent as WorkflowNode["agent"] })),
       };
-      const result = finish(def, `llm:${model.name}`, res.data.unsupported.map((u) => `${u} is not available yet; left out.`));
+      const delivery = ensureSlackDelivery(def, objective);
+      const notes = res.data.unsupported.map((u) => `${u} is not available yet; left out.`);
+      if (delivery.note) notes.push(delivery.note);
+      const result = finish(delivery.definition, `llm:${model.name}`, notes);
       if (!result.issues.some((i) => i.severity === "error")) return result;
       feedback = `\n\nYour previous plan had these errors; fix them:\n${result.issues.map((i) => `- ${i.nodeId ?? ""} ${i.message}`).join("\n")}`;
     } catch (e) {

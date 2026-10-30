@@ -14,7 +14,7 @@ reports an outcome that is **independently verified** against the provider — n
 | Area | Status | Notes |
 |---|---|---|
 | Auth, orgs, RBAC, API keys | ✅ | scrypt passwords, hashed opaque sessions, CSRF header, org-bound keys, 5 system roles |
-| NL mission → workflow graph | ✅ | LLM planner (OpenAI-compatible) with Zod validation + repair; deterministic template planner when no key is set (labelled `orbix-heuristic`) |
+| NL mission → workflow graph | ✅ | LLM planner (OpenAI-compatible; verified live with gpt-4.1-mini) with Zod validation + repair and a deterministic guard that adds the approval-gated send + verify steps when a model stops at the draft; deterministic template planner when no key is set (labelled `orbix-heuristic`) |
 | Visual editor (React Flow) | ✅ | edit nodes/edges, inspector, validation, immutable versioned publish, JSON import/export |
 | Simulation | ✅ | Plan Preview (no I/O) + Dry Run (sandbox connectors) + Live |
 | Scheduled triggers | ✅ | Cron + IANA timezone per workflow (DST-aware); planner detects "every weekday at 8:30am"-style phrasing; schedules start paused and are activated explicitly (dry run or live); double-fire prevented by row locks + a unique (schedule, slot) constraint; overlapping slots skipped; missed slots not replayed; ≥5-minute interval policy |
@@ -69,7 +69,7 @@ Full containers: `docker compose --profile app up --build`. CI builds all three 
 |---|---|---|
 | Core unit (validator, policy, state machines, retry, hashing, redaction, simulation, cron/timezone/DST) | `pnpm --filter @orbix/core test` | 21 passed |
 | Connectors unit (AES-GCM, key ring, PKCE, webhook signatures, SSRF, mapping) | `pnpm --filter @orbix/connectors test` | 11 passed |
-| Engine integration (vertical slice, approval binding, edit invalidation, ambiguous-write reconciliation, retries, rejection, expiry, pause/resume, tenancy, audit immutability, knowledge, scheduler concurrency/overlap/missed slots, non-UTC database timezone, secret rotation, tracing spans) | `pnpm --filter @orbix/engine test` | 27 passed |
+| Engine integration (vertical slice, approval binding, edit invalidation, ambiguous-write reconciliation, retries, rejection, expiry, pause/resume, tenancy, audit immutability, knowledge, scheduler concurrency/overlap/missed slots, non-UTC database timezone, secret rotation, tracing spans, LLM planner delivery guard) | `pnpm --filter @orbix/engine test` | 29 passed |
 | API e2e over HTTP (auth/CSRF, slice incl. SSE, publish validation, tenancy 404s, RBAC, API keys, SSRF, credential non-disclosure, schedule lifecycle + RBAC) | `pnpm --filter @orbix/api test` | 10 passed |
 | Playwright (full UI vertical slice; signed-out redirect; schedule detect → publish → activate) | `pnpm test:e2e` (stack running) | 3 passed |
 

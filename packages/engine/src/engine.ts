@@ -362,7 +362,7 @@ export class ExecutionEngine {
     }
 
     let expired = 0;
-    const stale = await this.db.approvalRequest.findMany({ where: { status: "PENDING", expiresAt: { lt: new Date() } }, take: 50 });
+    const stale = await this.db.approvalRequest.findMany({ where: { status: "PENDING", expiresAt: { lt: new Date() } }, orderBy: { expiresAt: "asc" }, take: 50 });
     for (const a of stale) {
       await this.expireApproval(a.id);
       expired++;
