@@ -14,6 +14,11 @@ const config: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, "../.."),
   compress: false, // keeps Server-Sent Events unbuffered through the rewrite
   poweredByHeader: false,
+  experimental: {
+    // The /api rewrite proxy idles out after 30s by default; LLM planning (up to two model attempts) can
+    // take longer. SSE streams are unaffected either way: they send a keepalive every 15s.
+    proxyTimeout: 120_000,
+  },
 };
 
 export default config;

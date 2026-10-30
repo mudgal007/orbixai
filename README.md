@@ -8,6 +8,7 @@ reports an outcome that is **independently verified** against the provider — n
 - Architecture, diagrams, state machines, failure taxonomy: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - API contracts: [docs/API.md](docs/API.md) · live OpenAPI at `http://localhost:4000/docs`
 - Phased plan & acceptance criteria: [docs/PLAN.md](docs/PLAN.md)
+- Deploying to Railway (or a VPS): [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ## Status (honest)
 

@@ -14,6 +14,10 @@ import { AppModule } from "./app.module";
 
 export async function createApp(opts: { logger?: boolean } = {}): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule, { rawBody: true, logger: opts.logger === false ? false : ["log", "warn", "error"] });
+  // Browsers reach the API through the web app's /api proxy, so the socket address is the proxy's.
+  // Trust that many hops of X-Forwarded-For so req.ip (rate limiting, audit) is the real client.
+  const trustHops = Number(process.env.ORBIX_TRUST_PROXY_HOPS ?? 1);
+  (app.getHttpAdapter().getInstance() as { set: (k: string, v: unknown) => void }).set("trust proxy", trustHops);
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cookieParser());
   app.enableCors({ origin: process.env.ORBIX_WEB_URL ?? "http://localhost:3000", credentials: true });
